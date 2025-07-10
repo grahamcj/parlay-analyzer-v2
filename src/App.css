@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-600 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-500;
+}
+
+/* Animation for value changes */
+@keyframes pulse-highlight {
+  0% {
+    background-color: rgba(168, 85, 247, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.value-changed {
+  animation: pulse-highlight 0.5s ease-out;
+}
+
+/* Custom tooltip styles */
+[data-radix-tooltip-content] {
+  z-index: 50;
+}
+
+/* Radix UI overlays */
+[data-radix-select-content] {
+  z-index: 50;
+}
+
+[data-radix-select-viewport] {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Ensure proper stacking of overlays */
+[data-radix-dialog-overlay] {
+  z-index: 40;
+}
+
+[data-radix-dialog-content] {
+  z-index: 50;
+}
+
+/* Ensure proper stacking context for fixed elements */
+body {
+  position: relative;
+}
+
+/* Fixed filter bar */
+.filter-bar-fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background-color: #030712;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Table section structure */
+.table-section {
+  position: relative;
+}
+
+/* Sticky first column - works on both header and body */
+.sticky-first-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+thead .sticky-first-col {
+  background-color: rgb(31 41 55); /* bg-gray-800 */
+}
+
+tbody .sticky-first-col {
+  background-color: rgb(17 24 39); /* bg-gray-900 */
+}
+
+/* Ensure proper background for selected rows */
+tr.bg-purple-950 .sticky-first-col {
+  background-color: rgb(88 28 135 / 0.3); /* purple-950 with opacity */
+}
+
+/* Hide scrollbar for floating header */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* Ensure floating header clicks work */
+.floating-header {
+  pointer-events: auto;
+}
+
+/* Smooth transitions */
+.table-section {
+  will-change: transform;
+}
+
+/* Parlay panel shadow */
+.parlay-panel {
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 30;
+}
+
+/* Collapsible table animation */
+.table-collapsed {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+  opacity: 0;
+}
+
+.table-expanded {
+  max-height: none;
+  transition: max-height 0.3s ease-in, opacity 0.3s ease-in;
+  opacity: 1;
+}
+
+/* Sticky first column on mobile */
+@media (max-width: 768px) {
+  .sticky-first-col {
+    position: sticky !important;
+    left: 0;
+    z-index: 2;
+  }
+  
+  /* Higher z-index for header first column to layer properly */
+  thead .sticky-first-col {
+    z-index: 3;
+  }
+}
+
+/* Print styles */
+@media print {
+  .floating-header {
+    display: none !important;
+  }
+  
+  .filter-bar-fixed {
+    position: relative;
+  }
+}
+
+/* Ensure proper scrolling behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Fix for filter panel positioning */
+.filter-panel {
+  position: relative;
+  z-index: 15;
+}
+
+/* Responsive padding adjustments */
+@media (max-width: 640px) {
+  .pt-\[85px\] {
+    padding-top: 75px; /* Slightly less padding on mobile */
+  }
+}
+
+/* Selected bet row */
+.bet-row-selected {
+  background-color: rgba(147, 51, 234, 0.3) !important; /* Purple with opacity */
+}
+
+/* Weak link row */
+.bet-row-weak {
+  border-left: 4px solid rgb(249, 115, 22) !important; /* Orange border */
+  background-color: rgba(249, 115, 22, 0.1) !important; /* Slight orange tint */
+}
+
+/* Hover state for better visibility */
+.bet-row-selected:hover {
+  background-color: rgba(147, 51, 234, 0.4) !important;
+}
