@@ -57,7 +57,7 @@ export default function FilterBar({ totalBets, bookmakers, homeTeam, awayTeam }:
 
               <Select.Portal>
                 <Select.Content className="bg-gray-900 rounded-lg shadow-xl border border-gray-800 overflow-hidden z-[200]">
-                  <Select.Viewport className="p-1">
+                  <Select.Viewport className="p-1 max-h-[300px] overflow-y-auto">
                     <Select.Item value="all" className="px-3 py-2 hover:bg-gray-800 rounded cursor-pointer">
                       <Select.ItemText>All Bets</Select.ItemText>
                     </Select.Item>

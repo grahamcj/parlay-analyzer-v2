@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { AlertTriangle, ArrowUpDown, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowUpDown, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
+import * as Popover from '@radix-ui/react-popover';
 import { LegMetric, BetCategory } from '../../types';
 import { useParlayStore } from '../../store/parlayStore';
 import { useFilterStore } from '../../store/filterStore';
@@ -144,26 +145,6 @@ export default function BetTable({
             const isWeak = weakLinks.includes(bet.leg_id);
             const alternatives = betterAlternatives.get(bet.leg_id) || [];
 
-            if (isSelected && bet.conditionalHitRate !== undefined) {
-              console.log('Selected bet in table:', {
-                betId: bet.leg_id,
-                originalRate: bet.blended_hit_rate,
-                conditionalRate: bet.conditionalHitRate,
-                difference: bet.conditionalHitRate - bet.blended_hit_rate
-              });
-            }
-
-            if (isSelected || isWeak || alternatives.length > 0) {
-              console.log('Bet Visual State:', {
-                betId: bet.leg_id,
-                isSelected,
-                isWeak,
-                alternativesCount: alternatives.length,
-                conditionalRate: bet.conditionalHitRate,
-                baseRate: bet.blended_hit_rate
-              });
-            }  
-
             return (
               <tr
                 key={`${bet.leg_id}_${index}`}
@@ -182,58 +163,54 @@ export default function BetTable({
 
                     // Special formatting for specific columns
                     if (column.key === 'bet') {
-                      console.log('Formatting bet column for:', bet.leg_id, {
-                        isWeak,
-                        weakLinks,
-                        alternatives: alternatives.length
-                      });
                       displayValue = (
                         <div className="flex items-center gap-2">
                           <span>{formatBetDescription(bet)}</span>
                           {isWeak && (
-                            <Tooltip.Provider>
-                              <Tooltip.Root>
-                                <Tooltip.Trigger asChild>
+                            <Popover.Root>
+                              <Popover.Trigger asChild>
+                                <button 
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="p-1"
+                                >
                                   <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />
-                                </Tooltip.Trigger>
-                                <Tooltip.Portal>
-                                  <Tooltip.Content
-                                    className="bg-gray-800 px-3 py-2 rounded text-sm max-w-xs z-50"
-                                    sideOffset={5}
-                                  >
-                                    Weak link - reduces parlay probability by {((1 - (bet.conditionalHitRate! / bet.blended_hit_rate!)) * 100).toFixed(0)}%
-                                    <Tooltip.Arrow className="fill-gray-800" />
-                                  </Tooltip.Content>
-                                </Tooltip.Portal>
-                              </Tooltip.Root>
-                            </Tooltip.Provider>
+                                </button>
+                              </Popover.Trigger>
+                              <Popover.Portal>
+                                <Popover.Content
+                                  className="bg-gray-800 px-3 py-2 rounded text-sm max-w-xs z-50 shadow-lg"
+                                  sideOffset={5}
+                                >
+                                  Weak link - reduces parlay probability by {((1 - (bet.conditionalHitRate! / bet.blended_hit_rate!)) * 100).toFixed(0)}%
+                                  <Popover.Arrow className="fill-gray-800" />
+                                </Popover.Content>
+                              </Popover.Portal>
+                            </Popover.Root>
                           )}
                           {alternatives.length > 0 && (
-                            <Tooltip.Provider>
-                              <Tooltip.Root>
-                                <Tooltip.Trigger asChild>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleAlternativeSwitch(bet.leg_id, alternatives[0]);
-                                    }}
-                                    className="p-1 hover:bg-gray-700 rounded flex-shrink-0"
-                                  >
-                                    <RefreshCw className="w-3 h-3 text-blue-400" />
-                                  </button>
-                                </Tooltip.Trigger>
-                                <Tooltip.Portal>
-                                  <Tooltip.Content
-                                    className="bg-gray-800 px-3 py-2 rounded text-sm max-w-xs z-50"
-                                    sideOffset={5}
-                                  >
-                                    Switch to {formatBetDescription(alternatives[0])} 
-                                    (+{((alternatives[0].conditionalHitRate! - bet.conditionalHitRate!) * 100).toFixed(1)}% better)
-                                    <Tooltip.Arrow className="fill-gray-800" />
-                                  </Tooltip.Content>
-                                </Tooltip.Portal>
-                              </Tooltip.Root>
-                            </Tooltip.Provider>
+                            <Popover.Root>
+                              <Popover.Trigger asChild>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAlternativeSwitch(bet.leg_id, alternatives[0]);
+                                  }}
+                                  className="p-1 hover:bg-gray-700 rounded flex-shrink-0"
+                                >
+                                  <RefreshCw className="w-3 h-3 text-blue-400" />
+                                </button>
+                              </Popover.Trigger>
+                              <Popover.Portal>
+                                <Popover.Content
+                                  className="bg-gray-800 px-3 py-2 rounded text-sm max-w-xs z-50 shadow-lg"
+                                  sideOffset={5}
+                                >
+                                  Switch to {formatBetDescription(alternatives[0])} 
+                                  (+{((alternatives[0].conditionalHitRate! - bet.conditionalHitRate!) * 100).toFixed(1)}% better)
+                                  <Popover.Arrow className="fill-gray-800" />
+                                </Popover.Content>
+                              </Popover.Portal>
+                            </Popover.Root>
                           )}
                         </div>
                       );
@@ -256,15 +233,19 @@ export default function BetTable({
                       const conditionalValue = bet.conditionalHitRate;
                       const originalValue = value as number;
                       
-                      if (conditionalValue !== undefined && conditionalValue !== originalValue && currentParlay.length > 0) {
-                        const diff = (conditionalValue - originalValue) * 100;
+                      if (conditionalValue !== undefined && Math.abs(conditionalValue - originalValue) > 0.001 && currentParlay.length > 0) {
+                        const diff = conditionalValue - originalValue;
                         displayValue = (
-                          <span className={getHitRateColor(conditionalValue)}>
-                            {formatPercentage(conditionalValue)}
-                            <span className={`text-xs ml-1 ${diff > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              ({diff > 0 ? '+' : ''}{diff.toFixed(0)}%)
+                          <div className="flex items-center gap-1">
+                            <span className={getHitRateColor(conditionalValue)}>
+                              {formatPercentage(conditionalValue)}
                             </span>
-                          </span>
+                            {diff > 0 ? (
+                              <TrendingUp className="w-3 h-3 text-green-400" />
+                            ) : (
+                              <TrendingDown className="w-3 h-3 text-red-400" />
+                            )}
+                          </div>
                         );
                       } else if (column.format && value !== null && value !== undefined) {
                         displayValue = column.format(value);

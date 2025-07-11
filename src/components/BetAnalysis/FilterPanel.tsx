@@ -3,6 +3,7 @@ import * as Select from '@radix-ui/react-select';
 import * as Slider from '@radix-ui/react-slider';
 import { useFilterStore } from '../../store/filterStore';
 import { useDataStore } from '../../store/dataStore';
+import { formatBookmaker } from '../../utils/formatting';
 
 interface FilterPanelProps {
   bookmakers: string[];
@@ -35,25 +36,24 @@ export default function FilterPanel({ bookmakers, currentTeams, onClose }: Filte
         <div>
           <label className="block text-sm text-gray-400 mb-2">Bookmaker</label>
           <Select.Root
-            value={filters.bookmaker || 'all'}
-            onValueChange={(value) => setFilter('bookmaker', value === 'all' ? undefined : value)}
+            value={filters.bookmaker || bookmakers[0]}
+            onValueChange={(value) => setFilter('bookmaker', value)}
           >
             <Select.Trigger className="w-full px-3 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors">
-              <Select.Value placeholder="All Bookmakers" />
+              <Select.Value placeholder="Select Bookmaker">
+                {filters.bookmaker ? formatBookmaker(filters.bookmaker) : 'Select Bookmaker'}
+              </Select.Value>
             </Select.Trigger>
             <Select.Portal>
               <Select.Content className="bg-gray-900 rounded-lg shadow-xl border border-gray-800 overflow-hidden z-[200]">
                 <Select.Viewport className="p-1">
-                  <Select.Item value="all" className="px-3 py-2 hover:bg-gray-800 rounded cursor-pointer">
-                    <Select.ItemText>All Bookmakers</Select.ItemText>
-                  </Select.Item>
                   {bookmakers.map(bookmaker => (
                     <Select.Item 
                       key={bookmaker} 
                       value={bookmaker}
                       className="px-3 py-2 hover:bg-gray-800 rounded cursor-pointer"
                     >
-                      <Select.ItemText>{bookmaker}</Select.ItemText>
+                      <Select.ItemText>{formatBookmaker(bookmaker)}</Select.ItemText>
                     </Select.Item>
                   ))}
                 </Select.Viewport>

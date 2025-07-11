@@ -1,5 +1,8 @@
-import { LegMetric, BetIndexEntry } from '../types';
-import { getCorrelationStrength } from './correlations';
+import { LegMetric, BetIndexEntry, Player, Team } from '../types';
+import { getTeamForBet, areBetsFromSameTeam, areBetsFromOpposingTeams } from './teamResolver';
+
+// Configurable weak link threshold
+const WEAK_LINK_THRESHOLD = 0.8; // 80% of base rate
 
 interface ConditionalMetricsResult {
   updatedBets: LegMetric[];
@@ -7,11 +10,102 @@ interface ConditionalMetricsResult {
   betterAlternatives: Map<string, LegMetric[]>;
 }
 
+// Helper to check if bet is a game total
+const isGameTotal = (bet: LegMetric): boolean => {
+  return bet.market === 'totals';
+};
+
+// Helper to check if bet is a team bet (ML or spread)
+const isTeamBet = (bet: LegMetric): boolean => {
+  return bet.market === 'h2h' || bet.market === 'spreads';
+};
+
+// Helper to check if bet is a pitcher prop
+const isPitcherProp = (bet: LegMetric): boolean => {
+  return bet.market.startsWith('pitcher_');
+};
+
+// Helper to check if bet is a batter prop
+const isBatterProp = (bet: LegMetric): boolean => {
+  return bet.market.startsWith('batter_');
+};
+
+// Replace your areBetsCorrelated function with this fixed version:
+
+// Determine if two bets are correlated based on the rules
+const areBetsCorrelated = (
+  bet1: LegMetric, 
+  bet2: LegMetric,
+  players: Player[],
+  teams: Team[]
+): boolean => {
+  // Must be same game
+  if (bet1.game_id !== bet2.game_id) return false;
+  
+  // Rule 1: Game totals correlate with everything in the game
+  if (isGameTotal(bet1) || isGameTotal(bet2)) {
+    return true;
+  }
+  
+  // Check both directions without recursion
+  return checkCorrelationOneWay(bet1, bet2, players, teams) || 
+         checkCorrelationOneWay(bet2, bet1, players, teams);
+};
+
+// Helper function to check correlation in one direction
+const checkCorrelationOneWay = (
+  bet1: LegMetric, 
+  bet2: LegMetric,
+  players: Player[],
+  teams: Team[]
+): boolean => {
+  // Rule 2: ML/spread correlates with:
+  // - Pitcher props for same team
+  // - Batter props for same team
+  if (isTeamBet(bet1)) {
+    if (isPitcherProp(bet2) || isBatterProp(bet2)) {
+      return areBetsFromSameTeam(bet1, bet2, players, teams);
+    }
+  }
+  
+  // Rule 3: Pitcher props correlate with:
+  // - ML/spread for their team
+  // - Batter props for OPPOSING team
+  if (isPitcherProp(bet1)) {
+    if (isTeamBet(bet2)) {
+      return areBetsFromSameTeam(bet1, bet2, players, teams);
+    }
+    if (isBatterProp(bet2)) {
+      return areBetsFromOpposingTeams(bet1, bet2, players, teams);
+    }
+  }
+  
+  // Rule 4: Batter props correlate with:
+  // - ML/spread for their team
+  // - Other batter props for SAME team
+  // - Pitcher props for OPPOSING team
+  if (isBatterProp(bet1)) {
+    if (isTeamBet(bet2)) {
+      return areBetsFromSameTeam(bet1, bet2, players, teams);
+    }
+    if (isBatterProp(bet2)) {
+      return areBetsFromSameTeam(bet1, bet2, players, teams);
+    }
+    if (isPitcherProp(bet2)) {
+      return areBetsFromOpposingTeams(bet1, bet2, players, teams);
+    }
+  }
+  
+  return false;
+};
+
 // Calculate conditional metrics for all bets given current parlay selections
 export const calculateConditionalMetrics = (
   availableBets: LegMetric[],
   selectedBets: LegMetric[],
-  betIndex: Record<string, BetIndexEntry>
+  betIndex: Record<string, BetIndexEntry>,
+  players: Player[],
+  teams: Team[]
 ): ConditionalMetricsResult => {
   if (selectedBets.length === 0) {
     // No conditioning needed, return original bets
@@ -34,17 +128,36 @@ export const calculateConditionalMetrics = (
   
   // Calculate conditional hit rates for each available bet
   for (const bet of availableBets) {
-    const conditionalRate = calculateConditionalHitRate(bet, selectedBets, betIndex);
-    const baseRate = bet.blended_hit_rate || bet.hit_rate;
-    const parlayBoost = ((conditionalRate - baseRate) / baseRate) * 100;
+    // Check if this bet is correlated with any selected bet
+    const hasCorrelation = selectedBets.some(selectedBet => 
+      areBetsCorrelated(bet, selectedBet, players, teams)
+    );
     
-    const updatedBet: LegMetric = {
-      ...bet,
-      conditionalHitRate: conditionalRate,
-      parlayBoost,
-      isWeakLink: false,
-      betterAlternatives: []
-    };
+    let updatedBet: LegMetric;
+    
+    if (hasCorrelation) {
+      // Only calculate conditional rate for correlated bets
+      const conditionalRate = calculateConditionalHitRate(bet, selectedBets, betIndex, players, teams);
+      const baseRate = bet.blended_hit_rate || bet.hit_rate;
+      const parlayBoost = ((conditionalRate - baseRate) / baseRate) * 100;
+      
+      updatedBet = {
+        ...bet,
+        conditionalHitRate: conditionalRate,
+        parlayBoost,
+        isWeakLink: false,
+        betterAlternatives: []
+      };
+    } else {
+      // No correlation - keep original values
+      updatedBet = {
+        ...bet,
+        conditionalHitRate: bet.blended_hit_rate || bet.hit_rate,
+        parlayBoost: 0,
+        isWeakLink: false,
+        betterAlternatives: []
+      };
+    }
     
     updatedBets.push(updatedBet);
   }
@@ -52,23 +165,15 @@ export const calculateConditionalMetrics = (
   // Calculate conditional rates for selected bets to identify weak links
   for (const selectedBet of selectedBets) {
     const otherBets = selectedBets.filter(b => b.leg_id !== selectedBet.leg_id);
-    const conditionalRate = calculateConditionalHitRate(selectedBet, otherBets, betIndex);
+    const conditionalRate = calculateConditionalHitRate(selectedBet, otherBets, betIndex, players, teams);
     const baseRate = selectedBet.blended_hit_rate || selectedBet.hit_rate;
-
-    console.log('Weak link check:', {
-      betId: selectedBet.leg_id,
-      baseRate,
-      conditionalRate,
-      threshold: baseRate * 0.9,
-      isWeak: conditionalRate < baseRate * 0.9
-    });
     
-    // If conditional rate drops significantly (below 80% of original), mark as weak link
-    if (conditionalRate < baseRate * 0.9) {
+    // If conditional rate drops below threshold (80% of original), mark as weak link
+    if (conditionalRate < baseRate * WEAK_LINK_THRESHOLD) {
       weakLinks.push(selectedBet.leg_id);
       
       // Find better alternatives for weak links
-      const alternatives = findBetterAlternatives(selectedBet, otherBets, availableBets, betIndex);
+      const alternatives = findBetterAlternatives(selectedBet, otherBets, availableBets, betIndex, players, teams);
       if (alternatives.length > 0) {
         betterAlternatives.set(selectedBet.leg_id, alternatives);
       }
@@ -87,32 +192,41 @@ export const calculateConditionalMetrics = (
 };
 
 // Calculate conditional hit rate for a bet given other selected bets
-const calculateConditionalHitRate = (
+export const calculateConditionalHitRate = (
   bet: LegMetric,
   conditionBets: LegMetric[],
-  betIndex: Record<string, BetIndexEntry>
+  betIndex: Record<string, BetIndexEntry>,
+  players: Player[],
+  teams: Team[]
 ): number => {
-  if (bet.leg_id === 'Spencer_Torkelson_HITS_OVER_0_5') {
-    console.log('Bet Index Entry:', betIndex[bet.leg_id]);
+  // Filter out self from condition bets
+  const filteredConditionBets = conditionBets.filter(b => b.leg_id !== bet.leg_id);
+  
+  if (filteredConditionBets.length === 0) {
+    return bet.blended_hit_rate || bet.hit_rate;
   }
-
-  if (conditionBets.length === 0) {
+  
+  // Only consider correlated bets for conditioning
+  const correlatedConditionBets = filteredConditionBets.filter(conditionBet =>
+    areBetsCorrelated(bet, conditionBet, players, teams)
+  );
+  
+  if (correlatedConditionBets.length === 0) {
     return bet.blended_hit_rate || bet.hit_rate;
   }
   
   // Get historical game data for this bet
   const betHistory = betIndex[bet.leg_id];
   if (!betHistory || !betHistory.hit_games || !Array.isArray(betHistory.hit_games)) {
-    console.log('No bet history, using estimate for:', bet.leg_id);
     // Fallback to correlation-based estimation
-    return estimateConditionalRate(bet, conditionBets);
+    return estimateConditionalRate(bet, correlatedConditionBets);
   }
   
   // Find games where all condition bets hit
   let conditionHitGames = new Set<string>();
   let initialized = false;
   
-  for (const conditionBet of conditionBets) {
+  for (const conditionBet of correlatedConditionBets) {
     const conditionHistory = betIndex[conditionBet.leg_id];
     if (!conditionHistory || !conditionHistory.hit_games || !Array.isArray(conditionHistory.hit_games)) continue;
     
@@ -131,7 +245,7 @@ const calculateConditionalHitRate = (
   
   if (!initialized || conditionHitGames.size === 0) {
     // No historical data, use correlation estimation
-    return estimateConditionalRate(bet, conditionBets);
+    return estimateConditionalRate(bet, correlatedConditionBets);
   }
   
   // Calculate hit rate within condition games
@@ -140,7 +254,7 @@ const calculateConditionalHitRate = (
   const conditionalRate = conditionalHits / conditionHitGames.size;
   
   // Blend with correlation estimate for stability
-  const correlationEstimate = estimateConditionalRate(bet, conditionBets);
+  const correlationEstimate = estimateConditionalRate(bet, correlatedConditionBets);
   const blendWeight = Math.min(conditionHitGames.size / 20, 1); // More weight with more data
   
   return conditionalRate * blendWeight + correlationEstimate * (1 - blendWeight);
@@ -152,9 +266,16 @@ const estimateConditionalRate = (bet: LegMetric, conditionBets: LegMetric[]): nu
   let adjustment = 0;
   
   for (const conditionBet of conditionBets) {
-    const correlation = getCorrelationStrength(bet, conditionBet);
-    // Adjust rate based on correlation (positive increases, negative decreases)
-    adjustment += correlation * 0.1; // 10% adjustment per unit of correlation
+    // Simple correlation strength based on bet types
+    let correlation = 0.1; // Default positive correlation
+    
+    // Game totals have stronger correlation
+    if (isGameTotal(conditionBet)) {
+      correlation = 0.2;
+    }
+    
+    // Adjust rate based on correlation
+    adjustment += correlation;
   }
   
   // Apply adjustment with bounds
@@ -167,7 +288,9 @@ const findBetterAlternatives = (
   weakBet: LegMetric,
   otherBets: LegMetric[],
   availableBets: LegMetric[],
-  betIndex: Record<string, BetIndexEntry>
+  betIndex: Record<string, BetIndexEntry>,
+  players: Player[],
+  teams: Team[]
 ): LegMetric[] => {
   // Look for similar bets (same player/team, similar market)
   const alternatives = availableBets.filter(bet => {
@@ -193,7 +316,7 @@ const findBetterAlternatives = (
   
   // Calculate conditional rates for alternatives
   const alternativesWithRates = alternatives.map(alt => {
-    const conditionalRate = calculateConditionalHitRate(alt, otherBets, betIndex);
+    const conditionalRate = calculateConditionalHitRate(alt, otherBets, betIndex, players, teams);
     return {
       bet: alt,
       improvement: conditionalRate - (weakBet.conditionalHitRate || weakBet.blended_hit_rate)
@@ -211,7 +334,9 @@ const findBetterAlternatives = (
 // Calculate overall parlay probability
 export const calculateParlayProbability = (
   legs: LegMetric[],
-  betIndex: Record<string, BetIndexEntry>
+  betIndex: Record<string, BetIndexEntry>,
+  players: Player[],
+  teams: Team[]
 ): number => {
   if (legs.length === 0) return 0;
   if (legs.length === 1) return legs[0].blended_hit_rate || legs[0].hit_rate;
@@ -221,7 +346,7 @@ export const calculateParlayProbability = (
   
   for (let i = 1; i < legs.length; i++) {
     const previousLegs = legs.slice(0, i);
-    const conditionalRate = calculateConditionalHitRate(legs[i], previousLegs, betIndex);
+    const conditionalRate = calculateConditionalHitRate(legs[i], previousLegs, betIndex, players, teams);
     probability *= conditionalRate;
   }
   

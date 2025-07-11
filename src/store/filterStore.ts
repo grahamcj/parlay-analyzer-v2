@@ -24,8 +24,11 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
   },
   
   clearFilters: () => {
+    const currentBookmaker = get().filters.bookmaker;
     set({
-      filters: {},
+      filters: {
+        bookmaker: currentBookmaker // Keep bookmaker when clearing
+      },
       activePreset: null,
       visibleColumns: DEFAULT_COLUMNS
     });
@@ -43,7 +46,10 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
     };
     
     set({
-      filters: preset.filters,
+      filters: {
+        ...preset.filters,
+        bookmaker: get().filters.bookmaker // Preserve bookmaker selection
+      },
       activePreset: presetType,
       visibleColumns: newVisibleColumns
     });

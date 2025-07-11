@@ -1,144 +1,42 @@
-import { LegMetric, Correlation } from '../types';
+import { LegMetric } from '../types';
 
-// MLB Correlation Rules based on the Excel sheet
-const MLB_CORRELATIONS: Correlation[] = [
-  // Home Runs automatically include hits, runs, RBIs, and 4+ total bases
-  { betType1: 'batter_home_runs', team1: 'same', betType2: 'batter_hits', team2: 'same', type: 'blocks' },
-  { betType1: 'batter_home_runs', team1: 'same', betType2: 'batter_runs', team2: 'same', type: 'blocks' },
-  { betType1: 'batter_home_runs', team1: 'same', betType2: 'batter_rbis', team2: 'same', type: 'blocks' },
-  { betType1: 'batter_home_runs', team1: 'same', betType2: 'batter_total_bases', team2: 'same', type: 'blocks' },
-  
-  // Multiple hits blocks single hit
-  { betType1: 'batter_hits', team1: 'same', betType2: 'batter_hits', team2: 'same', type: 'blocks' },
-  
-  // Team totals and moneylines
-  { betType1: 'h2h', team1: 'same', betType2: 'spreads', team2: 'same', type: 'blocks' },
-  { betType1: 'totals', team1: 'same', betType2: 'totals', team2: 'same', type: 'blocks' },
-  
-  // Positive correlations
-  { betType1: 'totals', team1: 'any', betType2: 'batter_hits', team2: 'same', type: 'positive', strength: 0.3 },
-  { betType1: 'totals', team1: 'any', betType2: 'batter_runs', team2: 'same', type: 'positive', strength: 0.4 },
-  { betType1: 'totals', team1: 'any', betType2: 'batter_rbis', team2: 'same', type: 'positive', strength: 0.35 },
-  
-  // Negative correlations
-  { betType1: 'totals', team1: 'any', betType2: 'pitcher_strikeouts', team2: 'any', type: 'negative', strength: -0.3 },
-  { betType1: 'pitcher_strikeouts', team1: 'same', betType2: 'batter_hits', team2: 'opposing', type: 'negative', strength: -0.4 },
-];
-
-// Check if two bets are from the same player
-const isSamePlayer = (bet1: LegMetric, bet2: LegMetric): boolean => {
-  return bet1.selection === bet2.selection && bet1.game_id === bet2.game_id;
-};
-
-// Check if two bets are from the same team
-const isSameTeam = (bet1: LegMetric, bet2: LegMetric): boolean => {
-  return bet1.selection === bet2.selection && bet1.game_id === bet2.game_id;
-};
-
-// Check if two bets are from opposing teams
-const isOpposingTeam = (bet1: LegMetric, bet2: LegMetric): boolean => {
-  if (bet1.game_id !== bet2.game_id) return false;
-  
-  const bet1Home = bet1.selection === bet1.home_team;
-  const bet2Home = bet2.selection === bet2.home_team;
-  
-  return bet1Home !== bet2Home;
-};
-
-// Extract base market from market string (e.g., "batter_hits_over_0.5" -> "batter_hits")
-const getBaseMarket = (market: string): string => {
-  return market.split('_').slice(0, 2).join('_');
-};
-
-// Check if bet matches correlation rule
-const matchesCorrelation = (bet: LegMetric, correlation: Correlation, side: 'betType1' | 'betType2'): boolean => {
-  const betMarket = getBaseMarket(bet.market);
-  const correlationMarket = side === 'betType1' ? correlation.betType1 : correlation.betType2;
-  const correlationTeam = side === 'betType1' ? correlation.team1 : correlation.team2;
-  
-  if (betMarket !== correlationMarket) return false;
-  
-  // Team requirements don't apply for this single bet check
-  return true;
-};
-
-// Check if two bets violate correlation rules (blocking)
+// Check if two bets should be blocked (can't be in same parlay)
 export const areBetsBlocked = (bet1: LegMetric, bet2: LegMetric): boolean => {
-  // Same game requirement for most correlations
+  // Same game requirement
   if (bet1.game_id !== bet2.game_id) return false;
   
-  // Check each blocking correlation rule
-  for (const correlation of MLB_CORRELATIONS) {
-    if (correlation.type !== 'blocks') continue;
-    
-    // Check both directions
-    if (matchesCorrelation(bet1, correlation, 'betType1') && 
-        matchesCorrelation(bet2, correlation, 'betType2')) {
-      
-      // Check team requirements
-      if (correlation.team1 === 'same' && correlation.team2 === 'same') {
-        if (isSamePlayer(bet1, bet2) || isSameTeam(bet1, bet2)) return true;
-      } else if (correlation.team1 === 'opposing' && correlation.team2 === 'opposing') {
-        if (isOpposingTeam(bet1, bet2)) return true;
-      }
-    }
-    
-    // Check reverse direction
-    if (matchesCorrelation(bet2, correlation, 'betType1') && 
-        matchesCorrelation(bet1, correlation, 'betType2')) {
-      
-      // Check team requirements
-      if (correlation.team1 === 'same' && correlation.team2 === 'same') {
-        if (isSamePlayer(bet1, bet2) || isSameTeam(bet1, bet2)) return true;
-      } else if (correlation.team1 === 'opposing' && correlation.team2 === 'opposing') {
-        if (isOpposingTeam(bet1, bet2)) return true;
-      }
-    }
+  // Can't bet both sides of a moneyline
+  if (bet1.market === 'h2h' && bet2.market === 'h2h') {
+    return bet1.selection !== bet2.selection;
   }
   
-  // Additional checks for same player/same stat
-  if (isSamePlayer(bet1, bet2) && getBaseMarket(bet1.market) === getBaseMarket(bet2.market)) {
-    // Can't bet over and under on same stat
-    if ((bet1.side === 'Over' && bet2.side === 'Under') || 
-        (bet1.side === 'Under' && bet2.side === 'Over')) {
-      return true;
-    }
-    
-    // Can't bet different lines of same stat (e.g., Over 0.5 and Over 1.5)
+  // Can't bet both sides of a spread
+  if (bet1.market === 'spreads' && bet2.market === 'spreads') {
+    return bet1.selection !== bet2.selection;
+  }
+  
+  // Can't bet over and under on same total
+  if (bet1.market === 'totals' && bet2.market === 'totals') {
+    return bet1.side !== bet2.side;
+  }
+  
+  // Can't bet different lines on same player prop
+  if (bet1.selection === bet2.selection && bet1.market === bet2.market) {
     return true;
   }
   
-  return false;
-};
-
-// Get correlation strength between two bets
-export const getCorrelationStrength = (bet1: LegMetric, bet2: LegMetric): number => {
-  // Same game requirement for most correlations
-  if (bet1.game_id !== bet2.game_id) return 0;
-  
-  for (const correlation of MLB_CORRELATIONS) {
-    if (correlation.type === 'blocks') continue;
+  // Additional check for same player/same stat but different lines
+  if (bet1.selection === bet2.selection && bet1.game_id === bet2.game_id) {
+    const market1Base = bet1.market.split('_').slice(0, 2).join('_');
+    const market2Base = bet2.market.split('_').slice(0, 2).join('_');
     
-    // Check both directions
-    if (matchesCorrelation(bet1, correlation, 'betType1') && 
-        matchesCorrelation(bet2, correlation, 'betType2')) {
-      
-      // Check team requirements
-      if (correlation.team1 === 'same' && correlation.team2 === 'same') {
-        if (isSamePlayer(bet1, bet2) || isSameTeam(bet1, bet2)) {
-          return correlation.strength || 0;
-        }
-      } else if (correlation.team1 === 'opposing' && correlation.team2 === 'opposing') {
-        if (isOpposingTeam(bet1, bet2)) {
-          return correlation.strength || 0;
-        }
-      } else if (correlation.team1 === 'any' || correlation.team2 === 'any') {
-        return correlation.strength || 0;
-      }
+    // Same player, same stat type (e.g., both are batter_hits)
+    if (market1Base === market2Base) {
+      return true;
     }
   }
   
-  return 0;
+  return false;
 };
 
 // Filter out blocked bets from available options
@@ -151,6 +49,21 @@ export const filterBlockedBets = (availableBets: LegMetric[], selectedBets: LegM
     }
     return true;
   });
+};
+
+// Get correlation strength between two bets
+// Note: This is now mainly handled in conditionalMetrics.ts with proper team resolution
+export const getCorrelationStrength = (bet1: LegMetric, bet2: LegMetric): number => {
+  // Must be same game
+  if (bet1.game_id !== bet2.game_id) return 0;
+  
+  // Game totals correlate with everything
+  if (bet1.market === 'totals' || bet2.market === 'totals') {
+    return 0.2;
+  }
+  
+  // Default to no correlation - proper correlation is handled in conditionalMetrics
+  return 0;
 };
 
 // Calculate parlay correlation factor

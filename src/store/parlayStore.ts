@@ -21,6 +21,14 @@ export const useParlayStore = create<ParlayStore>((set, get) => ({
     });
   },
   
+  updateParlayLeg: (legId: string, updates: Partial<LegMetric>) => {
+    set({
+      currentParlay: get().currentParlay.map(leg =>
+        leg.leg_id === legId ? { ...leg, ...updates } : leg
+      )
+    });
+  },
+  
   clearParlay: () => {
     set({ currentParlay: [] });
   },

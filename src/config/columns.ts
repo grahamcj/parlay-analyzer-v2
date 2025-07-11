@@ -235,12 +235,18 @@ export const getHitRateColor = (value: number): string => {
 export const formatBetDescription = (leg: any): string => {
   const { selection, market, side, line_value } = leg;
   
-  // Format market name
-  const marketName = market
+  // Check if it's an alternate line
+  const isAlternate = market.toLowerCase().includes('alternate');
+  
+  // Format market name - remove alternate suffix and underscores
+  let marketName = market
     .replace('batter_', '')
     .replace('pitcher_', '')
-    .replace('_', ' ')
-    .replace(/\b\w/g, (l: string) => l.toUpperCase());
+    .replace(/_alternate/gi, '') // Remove alternate suffix
+    .replace(/_/g, ' '); // Replace all underscores with spaces
+  
+  // Capitalize words
+  marketName = marketName.replace(/\b\w/g, (l: string) => l.toUpperCase());
   
   // Build description
   if (market === 'h2h') {
@@ -250,6 +256,22 @@ export const formatBetDescription = (leg: any): string => {
   } else if (market === 'totals') {
     return `${side} ${line_value} Runs`;
   } else {
-    return `${selection} ${side} ${line_value} ${marketName}`;
+    const altSuffix = isAlternate ? ' (Alt)' : '';
+    return `${selection} ${side} ${line_value} ${marketName}${altSuffix}`;
   }
+};
+
+// Helper to format bookmaker names properly
+export const formatBookmaker = (bookmaker: string): string => {
+  const bookmakerMap: Record<string, string> = {
+    'draftkings': 'DraftKings',
+    'fanduel': 'FanDuel',
+    'espnbet': 'ESPN BET',
+    'espn bet': 'ESPN BET',
+    'hardrock': 'Hard Rock Bet',
+    'hard rock bet': 'Hard Rock Bet',
+    'betmgm': 'BetMGM'
+  };
+  
+  return bookmakerMap[bookmaker.toLowerCase()] || bookmaker;
 };

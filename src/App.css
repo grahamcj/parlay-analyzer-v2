@@ -196,3 +196,26 @@ html {
 .bet-row-selected:hover {
   background-color: rgba(147, 51, 234, 0.4) !important;
 }
+
+/* Responsive padding adjustments */
+@media (max-width: 640px) {
+  .pt-\[85px\] {
+    padding-top: 75px; /* Slightly less padding on mobile */
+  }
+}
+
+/* Selected bet row */
+.bet-row-selected {
+  background-color: rgba(147, 51, 234, 0.3) !important; /* Purple with opacity */
+}
+
+/* Weak link row */
+.bet-row-weak {
+  border-left: 4px solid rgb(249, 115, 22) !important; /* Orange border */
+  background-color: rgba(249, 115, 22, 0.1) !important; /* Slight orange tint */
+}
+
+/* Hover state for better visibility */
+.bet-row-selected:hover {
+  background-color: rgba(147, 51, 234, 0.4) !important;
+}

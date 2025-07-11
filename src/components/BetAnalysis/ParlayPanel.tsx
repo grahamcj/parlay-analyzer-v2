@@ -1,20 +1,81 @@
-import { useState } from 'react';
-import { X, ChevronDown, ChevronUp, Save, AlertTriangle } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { X, ChevronDown, ChevronUp, Save, AlertTriangle, Info, Wand2, Plus, RefreshCw } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
+import * as Popover from '@radix-ui/react-popover';
 import { useParlayStore } from '../../store/parlayStore';
 import { useDataStore } from '../../store/dataStore';
 import { formatBetDescription } from '../../config/columns';
 import { formatOdds, formatCurrency, formatPercentage } from '../../utils/formatting';
 import { calculateParlayProbability } from '../../utils/conditionalMetrics';
+import { getCorrelationStrength } from '../../utils/correlations';
+import AlternateLinesPopover from './AlternateLinesPopover';
+import ParlayInfoDialog from './ParlayInfoDialog';
 
 export default function ParlayPanel() {
   const [wager, setWager] = useState(10);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [parlayName, setParlayName] = useState('');
+  const [showAddLegSuggestions, setShowAddLegSuggestions] = useState(false);
   
-  const { currentParlay, isParlayMinimized, removeLeg, clearParlay, saveParlay, toggleParlayMinimized } = useParlayStore();
-  const { betIndex } = useDataStore();
+  const { currentParlay, isParlayMinimized, removeLeg, clearParlay, saveParlay, toggleParlayMinimized, switchBetInParlay, addLeg } = useParlayStore();
+  const { betIndex, legMetrics } = useDataStore();
 
+  // Get add-a-leg suggestions
+  const getAddLegSuggestions = () => {
+    if (currentParlay.length === 0) return [];
+    
+    // Find bets from same games that have high correlation
+    const gameIds = [...new Set(currentParlay.map(leg => leg.game_id))];
+    const candidateBets = legMetrics.filter(bet => 
+      gameIds.includes(bet.game_id) && 
+      !currentParlay.some(leg => leg.leg_id === bet.leg_id)
+    );
+    
+    // Calculate correlation scores
+    const suggestions = candidateBets.map(bet => {
+      let totalCorrelation = 0;
+      currentParlay.forEach(leg => {
+        totalCorrelation += Math.max(0, getCorrelationStrength(bet, leg));
+      });
+      return { bet, score: totalCorrelation };
+    });
+    
+    // Sort by correlation score and return top 2
+    return suggestions
+      .filter(s => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2)
+      .map(s => s.bet);
+  };
+
+  const addLegSuggestions = useMemo(() => getAddLegSuggestions(), [currentParlay, legMetrics]);
+
+  const handleSave = () => {
+    if (parlayName.trim()) {
+      saveParlay(parlayName.trim());
+      setParlayName('');
+      setShowSaveDialog(false);
+    }
+  };
+
+  const handleOptimize = () => {
+    // Swap weak links
+    currentParlay.forEach(leg => {
+      if (leg.isWeakLink && leg.betterAlternatives && leg.betterAlternatives.length > 0) {
+        const alternative = leg.betterAlternatives[0];
+        if (alternative && alternative.leg_id) {
+          switchBetInParlay(leg.leg_id, alternative);
+        }
+      }
+    });
+    
+    // Add best suggested leg if available
+    if (addLegSuggestions.length > 0) {
+      addLeg(addLegSuggestions[0]);
+    }
+  };
+
+  // Early return AFTER all hooks
   if (currentParlay.length === 0) return null;
 
   // Calculate parlay odds
@@ -46,14 +107,17 @@ export default function ParlayPanel() {
   // Calculate conditional probability
   const conditionalProb = calculateParlayProbability(currentParlay, betIndex);
   const impliedProb = 1 / decimalOdds;
-
-  const handleSave = () => {
-    if (parlayName.trim()) {
-      saveParlay(parlayName.trim());
-      setParlayName('');
-      setShowSaveDialog(false);
-    }
-  };
+  
+  // Calculate adjusted odds (estimated sportsbook odds)
+  const adjustedDecimal = 1 / conditionalProb;
+  const adjustedAmerican = adjustedDecimal >= 2
+    ? Math.round((adjustedDecimal - 1) * 100)
+    : Math.round(-100 / (adjustedDecimal - 1));
+  
+  // Calculate synergy score
+  const synergyPercent = ((conditionalProb - impliedProb) / impliedProb) * 100;
+  const synergyLabel = synergyPercent > 10 ? 'High' : synergyPercent > 0 ? 'Medium' : 'Low';
+  const synergyColor = synergyPercent > 10 ? 'text-green-400' : synergyPercent > 0 ? 'text-yellow-400' : 'text-red-400';
 
   return (
     <div className={`fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 transition-transform z-40 ${
@@ -71,6 +135,9 @@ export default function ParlayPanel() {
           <span className="text-sm text-gray-400">
             {formatOdds(parlayOdds)} • {formatPercentage(impliedProb)}
           </span>
+          <span className={`text-sm ${synergyColor}`}>
+            Synergy: {synergyLabel}
+          </span>
         </div>
         <button className="p-1">
           {isParlayMinimized ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
@@ -80,6 +147,48 @@ export default function ParlayPanel() {
       {/* Content */}
       {!isParlayMinimized && (
         <div className="px-4 pb-4">
+          {/* Add-a-Leg Suggestion */}
+          {addLegSuggestions.length > 0 && currentParlay.length < 5 && (
+            <div className="mb-4 p-3 bg-gray-800 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium">Suggested Addition</span>
+                <button
+                  onClick={() => setShowAddLegSuggestions(!showAddLegSuggestions)}
+                  className="text-xs text-purple-400 hover:text-purple-300"
+                >
+                  {showAddLegSuggestions ? 'Hide' : 'Show All'}
+                </button>
+              </div>
+              {showAddLegSuggestions ? (
+                <div className="space-y-2">
+                  {addLegSuggestions.map(suggestion => (
+                    <button
+                      key={suggestion.leg_id}
+                      onClick={() => {
+                        addLeg(suggestion);
+                        setShowAddLegSuggestions(false);
+                      }}
+                      className="w-full text-left p-2 hover:bg-gray-700 rounded flex items-center justify-between"
+                    >
+                      <span className="text-sm">{formatBetDescription(suggestion)}</span>
+                      <Plus className="w-4 h-4 text-green-400" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    addLeg(addLegSuggestions[0]);
+                  }}
+                  className="flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add {formatBetDescription(addLegSuggestions[0])}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Legs */}
           <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
             {currentParlay.map((leg) => (
@@ -91,29 +200,50 @@ export default function ParlayPanel() {
               >
                 <div className="flex items-center gap-3">
                   {leg.isWeakLink && (
-                    <AlertTriangle className="w-4 h-4 text-orange-500" />
+                    <Popover.Root>
+                      <Popover.Trigger asChild>
+                        <button className="p-1">
+                          <AlertTriangle className="w-4 h-4 text-orange-500" />
+                        </button>
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content
+                          className="bg-gray-800 px-3 py-2 rounded text-sm max-w-xs z-50 shadow-lg"
+                          sideOffset={5}
+                        >
+                          This leg reduces the parlay's overall hit rate by {((1 - ((leg.conditionalHitRate || 0) / (leg.blended_hit_rate || 1))) * 100).toFixed(0)}%
+                          <Popover.Arrow className="fill-gray-800" />
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
                   )}
                   <div>
                     <p className="font-medium">{formatBetDescription(leg)}</p>
                     <p className="text-sm text-gray-400">
-                      {formatOdds(leg.price)} • {formatPercentage(leg.implied_prob)}
-                      {leg.conditionalHitRate && (
-                        <span className="ml-2">
-                          → {formatPercentage(leg.conditionalHitRate)}
+                      {formatOdds(leg.price)} • {formatPercentage(leg.implied_prob || 0)}
+                      {leg.conditionalHitRate !== undefined && (
+                        <span className={(leg.conditionalHitRate > (leg.blended_hit_rate || 0)) ? 'text-green-400' : 'text-red-400'}>
+                          {' '}→ {formatPercentage(leg.conditionalHitRate)}
                         </span>
                       )}
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeLeg(leg.leg_id);
-                  }}
-                  className="p-1 hover:bg-gray-700 rounded"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <AlternateLinesPopover 
+                    bet={leg}
+                    otherBets={currentParlay.filter(b => b.leg_id !== leg.leg_id)}
+                  />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeLeg(leg.leg_id);
+                    }}
+                    className="p-1 hover:bg-gray-700 rounded"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -144,16 +274,36 @@ export default function ParlayPanel() {
           </div>
 
           {/* Probability Comparison */}
-          {conditionalProb !== impliedProb && (
-            <div className="p-3 bg-gray-800 rounded-lg mb-4">
-              <p className="text-sm text-gray-400">
-                Conditional Probability: {formatPercentage(conditionalProb)}
-                <span className={conditionalProb > impliedProb ? 'text-green-400' : 'text-red-400'}>
-                  {' '}({conditionalProb > impliedProb ? '+' : ''}{formatPercentage(conditionalProb - impliedProb)})
-                </span>
-              </p>
+          <div className="p-3 bg-gray-800 rounded-lg mb-4 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Conditional Probability:</span>
+                <Popover.Root>
+                  <Popover.Trigger asChild>
+                    <button className="p-1">
+                      <Info className="w-3 h-3 text-gray-500" />
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      className="bg-gray-800 px-3 py-2 rounded text-sm max-w-xs z-50 shadow-lg"
+                      sideOffset={5}
+                    >
+                      The actual probability of all legs hitting together based on historical correlations
+                      <Popover.Arrow className="fill-gray-800" />
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              </div>
+              <span className={conditionalProb > impliedProb ? 'text-green-400' : 'text-red-400'}>
+                {formatPercentage(conditionalProb)}
+              </span>
             </div>
-          )}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-400">Est. Same-Game Parlay Odds:</span>
+              <span>{formatOdds(adjustedAmerican)}</span>
+            </div>
+          </div>
 
           {/* Actions */}
           <div className="flex gap-2">
@@ -163,6 +313,15 @@ export default function ParlayPanel() {
             >
               Clear
             </button>
+            <button
+              onClick={handleOptimize}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-2"
+              disabled={!currentParlay.some(leg => leg.isWeakLink) && addLegSuggestions.length === 0}
+            >
+              <Wand2 className="w-4 h-4" />
+              Optimize
+            </button>
+            <ParlayInfoDialog />
             <Dialog.Root open={showSaveDialog} onOpenChange={setShowSaveDialog}>
               <Dialog.Trigger asChild>
                 <button className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors flex items-center justify-center gap-2">
